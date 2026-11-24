@@ -3,6 +3,7 @@
  * site and the SQLite-backed API together, no second process.
  *
  *   GET  /api/health            → { ok, file, sqliteVersion }
+ *   GET  /api/db.sqlite         → the database file itself (download)
  *   GET  /api/db                → table list with row counts, columns and CREATE statements
  *   GET  /api/db/:table?limit=  → rows of one table/view
  *   POST /api/db/query {sql}    → one read-only SELECT (runs on a read-only connection)
@@ -10,9 +11,8 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
-import { DB_PATH, getDb, query, record, summary, tableRows, type DbEvent } from './db'
-
-const EVENT_TYPES = new Set(['deploy', 'recall', 'status', 'threat', 'battle', 'log', 'reset'])
+import type { DbEvent } from './db'
+import { EVENT_TYPES } from '../src/lib/records'
 
 function send(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status
@@ -30,9 +30,15 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
   return raw ? JSON.parse(raw) : {}
 }
 
+// node:sqlite is loaded only when a dev/preview server starts — never during `vite build`,
+// so static builds (e.g. Vercel) work on any Node version.
+let dbModule: Promise<typeof import('./db')> | null = null
+const loadDb = () => (dbModule ??= import('./db'))
+
 async function handle(req: IncomingMessage, res: ServerResponse, next: () => void) {
   const url = new URL(req.url ?? '/', 'http://local')
   if (!url.pathname.startsWith('/api/')) return next()
+  const { fileBytes, query, record, summary, tableRows } = await loadDb()
   const path = url.pathname.slice(4) // strip "/api"
   try {
     if (req.method === 'GET' && path === '/health') {
@@ -40,6 +46,13 @@ async function handle(req: IncomingMessage, res: ServerResponse, next: () => voi
       return send(res, 200, { ok: true, file: s.file, sqliteVersion: s.sqliteVersion })
     }
     if (req.method === 'GET' && path === '/db') return send(res, 200, summary())
+    if (req.method === 'GET' && path === '/db.sqlite') {
+      res.statusCode = 200
+      res.setHeader('Content-Type', 'application/vnd.sqlite3')
+      res.setHeader('Content-Disposition', 'attachment; filename="shield.db"')
+      res.setHeader('Cache-Control', 'no-store')
+      return res.end(fileBytes())
+    }
     if (req.method === 'GET' && path.startsWith('/db/')) {
       const name = decodeURIComponent(path.slice(4))
       return send(res, 200, { rows: tableRows(name, Number(url.searchParams.get('limit') ?? 50)) })
@@ -65,12 +78,14 @@ export function shieldApi(): Plugin {
   return {
     name: 'shield-sqlite-api',
     configureServer(server) {
-      getDb()
-      server.config.logger.info(`  \x1b[31m▲\x1b[0m SQLite database: ${DB_PATH}`)
+      void loadDb().then(({ getDb, DB_PATH }) => {
+        getDb()
+        server.config.logger.info(`  \x1b[31m▲\x1b[0m SQLite database: ${DB_PATH}`)
+      })
       server.middlewares.use((req, res, next) => void handle(req, res, next))
     },
     configurePreviewServer(server) {
-      getDb()
+      void loadDb().then(({ getDb }) => getDb())
       server.middlewares.use((req, res, next) => void handle(req, res, next))
     },
   }

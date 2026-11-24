@@ -47,6 +47,8 @@ Section **07 Data vault** shows the tables updating live as you play, each table
 sqlite3 data/shield.db "SELECT * FROM hero_leaderboard;"
 ```
 
-API: `GET /api/db`, `GET /api/db/:table`, `POST /api/db/query {sql}`, `POST /api/events`.
+API: `GET /api/db`, `GET /api/db/:table`, `POST /api/db/query {sql}`, `POST /api/events`, `GET /api/db.sqlite` (download).
+
+**Static deploys (e.g. Vercel):** there is no API there, so the app automatically falls back to the same SQLite schema running **in the browser** via [sql.js](https://sql.js.org) (SQLite compiled to WebAssembly). Everything is still recorded and the Data vault works the same; the database is saved on that device (IndexedDB) and the **Download .db** button exports it as a standard SQLite file. The vault's status strip shows which engine is active. Shared logic for both engines: `src/lib/records.ts`.
 
 Fan project: Marvel, the Avengers and all characters are trademarks of Marvel. Logos come from Wikimedia Commons; character art from the Marvel Database (Fandom), resized and self-hosted in `public/art`.

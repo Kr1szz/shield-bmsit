@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Database as DbIcon, Play, RefreshCw, Table2, Eye, Code2 } from 'lucide-react'
+import { Database as DbIcon, Play, RefreshCw, Table2, Eye, Code2, Download } from 'lucide-react'
 import { Scramble, useReveal } from '../components/ui'
 import { api, onDbWrite, type DbSummary, type Row } from '../lib/db'
 
@@ -97,15 +97,15 @@ export default function DataVault() {
           <span className="display-thin block text-[clamp(2.5rem,6vw,4.5rem)] text-marvel">records</span>
         </h2>
         <p data-reveal className="max-w-sm text-[15px] leading-6 text-bone/80 md:col-span-4 md:self-end">
-          Every deployment, battle, status change and comms entry is written to a SQLite 3 database on the server.
-          Browse the tables live or run your own <b>SELECT</b> below.
+          Every deployment, battle, status change and comms entry is written to a SQLite 3 database — on the server when
+          it’s running, or right here in your browser. Browse the tables live, run your own <b>SELECT</b>, or download the file.
         </p>
       </header>
 
       {offline ? (
         <div data-reveal className="border-2 border-bone p-8">
           <p className="display text-3xl">Vault offline</p>
-          <p className="mt-2 max-w-md text-bone/70">The SQLite API isn't reachable. Run the project with <code className="bg-bone px-1 text-ink">npm run dev</code> (or <code className="bg-bone px-1 text-ink">npm run preview</code>) to start it.</p>
+          <p className="mt-2 max-w-md text-bone/70">The database couldn’t start in this browser (storage or WebAssembly may be blocked). Try another browser, or run the project with <code className="bg-bone px-1 text-ink">npm run dev</code>.</p>
           <button onClick={() => void refresh()} className="btn btn-inv mt-6"><RefreshCw size={14} /> Retry</button>
         </div>
       ) : (
@@ -117,10 +117,14 @@ export default function DataVault() {
               <span className="label text-marvel">Live</span>
             </span>
             <span className="flex items-center gap-2"><DbIcon size={13} /> {info?.file ?? '…'}</span>
+            <span className="border border-bone/40 px-1.5" title={info?.engine === 'browser' ? 'Real SQLite compiled to WebAssembly (sql.js), saved on this device' : 'Node’s built-in SQLite on the server'}>
+              {info?.engine === 'browser' ? 'In-browser engine (WebAssembly)' : 'Server engine (node:sqlite)'}
+            </span>
             <span>SQLite {info?.sqliteVersion ?? '…'}</span>
             <span>{info ? `${info.tables.filter((t) => t.type === 'table').length} tables · ${info.tables.filter((t) => t.type === 'view').length} views` : ''}</span>
             <span>{info ? `${info.tables.filter((t) => t.type === 'table').reduce((a, t) => a + t.rows, 0)} rows` : ''}</span>
-            <button onClick={() => void refresh()} className="ml-auto flex items-center gap-1 hover:text-marvel" aria-label="Refresh"><RefreshCw size={13} /> Refresh</button>
+            <button onClick={() => void api.download()} className="ml-auto flex items-center gap-1 hover:text-marvel" data-cursor="Download"><Download size={13} /> Download .db</button>
+            <button onClick={() => void refresh()} className="flex items-center gap-1 hover:text-marvel" aria-label="Refresh"><RefreshCw size={13} /> Refresh</button>
           </div>
 
           <div className="grid gap-6 lg:grid-cols-12">
