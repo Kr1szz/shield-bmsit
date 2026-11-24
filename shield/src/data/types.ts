@@ -17,6 +17,19 @@ export interface Ability {
   description: string
 }
 
+/**
+ * Combo finisher: fires when a hero lands their basic attack one round,
+ * then their special the very next round (no other move in between).
+ */
+export interface Combo {
+  name: string
+  /** Hits the finisher lands; each hit plays its own impact. */
+  hits: number
+  /** Damage multiplier applied on top of the special. */
+  bonus: number
+  description: string
+}
+
 export interface Hero {
   id: string
   name: string
@@ -29,7 +42,10 @@ export interface Hero {
   clearance: number
   stats: Stats
   abilities: Ability[]
+  combo: Combo
   bio: string
+  /** Recruited for the Avengers: Doomsday crisis */
+  doomsday?: boolean
 }
 
 export interface Villain {

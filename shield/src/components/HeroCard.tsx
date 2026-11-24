@@ -24,7 +24,10 @@ export default function HeroRow({ hero, index, selected, deployed, focused, onFo
       <Portrait src={hero.image} alt="" className="h-14 w-14 md:hidden" focus={hero.focus} color={selected} />
       <button onClick={onOpen} onFocus={onFocus} className="min-w-0 text-left" aria-label={`Open ${hero.name} file`}>
         <span className="display block text-[clamp(1.1rem,1.9vw,1.6rem)] leading-tight">{hero.name}</span>
-        <span className="label block opacity-60">{hero.realName} · {hero.role}</span>
+        <span className="label block opacity-60">
+          {hero.realName} · {hero.role}
+          {hero.doomsday && <span className="ml-2 bg-marvel px-1 text-bone opacity-100">Doomsday</span>}
+        </span>
       </button>
       <span className="label hidden md:block">
         {deployed ? <span className="bg-marvel px-1 text-bone">Deployed</span> : `LV-${hero.clearance}`}

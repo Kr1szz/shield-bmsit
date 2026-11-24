@@ -65,7 +65,7 @@ export default function Dossier({ hero, selected, deployed, onClose, onToggle }:
 
           <div className="relative p-6 md:p-8">
             <span className="dossier-stamp display absolute top-6 right-6 -rotate-6 border-4 border-marvel px-2 text-xl text-marvel">Classified</span>
-            <p className="label text-ink/60">Avengers Initiative</p>
+            <p className="label text-ink/60">{hero.doomsday ? <><span className="bg-ink px-1 text-bone">Doomsday recruit</span> · Avengers: Doomsday response</> : 'Avengers Initiative'}</p>
             <h3 className="display mt-2 text-[clamp(2.5rem,6vw,4.5rem)]">{hero.name}</h3>
             <p className="display-thin text-[clamp(2.5rem,6vw,4.5rem)]">{powerScore(hero)}<span className="label ml-2 align-top">rating</span></p>
             <p className="mt-6 max-w-prose text-[15px] leading-6">
@@ -97,6 +97,14 @@ export default function Dossier({ hero, selected, deployed, onClose, onToggle }:
                     <td className="display py-2 text-right text-xl">{a.damage || '+HP'}</td>
                   </tr>
                 ))}
+                <tr className="align-top">
+                  <td className="py-2 pr-4">
+                    <p className="font-semibold"><span className="mr-2 bg-marvel px-1 text-bone">Combo</span>{hero.combo.name}</p>
+                    <p className="text-sm text-ink/70">{hero.combo.description} Triggered by {hero.abilities[0].name} then {hero.abilities[1].name} on the next round.</p>
+                  </td>
+                  <td className="label py-2">{hero.combo.hits} hits</td>
+                  <td className="display py-2 text-right text-xl">×{hero.combo.bonus}</td>
+                </tr>
               </tbody>
             </table>
 

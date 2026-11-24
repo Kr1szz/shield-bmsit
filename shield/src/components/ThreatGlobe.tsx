@@ -171,6 +171,151 @@ function Satellite() {
   )
 }
 
+/* ── Iron Man: tiny primitive-built armor flying a looping orbit with thruster trails ── */
+
+const IM_RED = '#b3121b'
+const IM_GOLD = '#e8b03a'
+const IM_GLOW = '#bff3ff'
+const TRAIL = 46
+
+/** Where Iron Man is at time t — a tilted, gently bobbing figure-of-eight-ish loop. */
+function flightPath(t: number, out: THREE.Vector3) {
+  const a = t * 0.42
+  const r = 2.75 + Math.sin(a * 3) * 0.18
+  return out.set(Math.cos(a) * r, Math.sin(a * 2) * 0.55 + 0.35, Math.sin(a) * r)
+}
+
+function IronMan() {
+  const body = useRef<THREE.Group>(null)
+  const trail = useMemo(() => {
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TRAIL * 3), 3))
+    const fade = new Float32Array(TRAIL * 3)
+    for (let i = 0; i < TRAIL; i++) {
+      const k = 1 - i / TRAIL
+      fade.set([0.75 * k + 0.1, 0.95 * k + 0.05, 1.0 * k + 0.1], i * 3)
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(fade, 3))
+    return g
+  }, [])
+  const trailLine = useMemo(
+    () => new THREE.Line(trail, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false })),
+    [trail],
+  )
+  const history = useRef<THREE.Vector3[]>([])
+  const tmp = useMemo(() => ({ p: new THREE.Vector3(), q: new THREE.Vector3(), up: new THREE.Vector3(), m: new THREE.Matrix4() }), [])
+  const flame = useRef<THREE.Group>(null)
+
+  useFrame(({ clock }) => {
+    const g = body.current
+    if (!g) return
+    const t = clock.getElapsedTime()
+    const p = flightPath(t, tmp.p)
+    const ahead = flightPath(t + 0.08, tmp.q)
+    g.position.copy(p)
+    // face along velocity, head forward (superman pose), bank into the turn
+    const fwd = ahead.clone().sub(p).normalize()
+    const outward = p.clone().normalize()
+    tmp.up.copy(outward).addScaledVector(fwd, -outward.dot(fwd)).normalize().negate()
+    const right = new THREE.Vector3().crossVectors(fwd, tmp.up).normalize()
+    // body +Y points along travel, chest (+Z) faces the Earth below
+    tmp.m.makeBasis(right, fwd, tmp.up)
+    g.quaternion.setFromRotationMatrix(tmp.m)
+    // slow barrel roll so the armor shows its front and back, not just a side profile
+    g.rotateY(t * 0.9)
+    if (flame.current) flame.current.scale.y = 0.8 + Math.sin(t * 40) * 0.2 + Math.random() * 0.15
+
+    // thruster trail
+    const h = history.current
+    h.unshift(p.clone().addScaledVector(fwd, -0.09))
+    if (h.length > TRAIL) h.length = TRAIL
+    const arr = trail.attributes.position.array as Float32Array
+    for (let i = 0; i < TRAIL; i++) {
+      const v = h[Math.min(i, h.length - 1)]
+      arr[i * 3] = v.x
+      arr[i * 3 + 1] = v.y
+      arr[i * 3 + 2] = v.z
+    }
+    trail.attributes.position.needsUpdate = true
+    trail.computeBoundingSphere()
+  })
+
+  const red = <meshStandardMaterial color={IM_RED} emissive={IM_RED} emissiveIntensity={0.45} metalness={0.5} roughness={0.35} />
+  const gold = <meshStandardMaterial color={IM_GOLD} emissive={IM_GOLD} emissiveIntensity={0.35} metalness={0.6} roughness={0.3} />
+  const glow = <meshBasicMaterial color={IM_GLOW} toneMapped={false} />
+
+  return (
+    <>
+      <primitive object={trailLine} />
+      <group ref={body} scale={0.14}>
+        {/* torso */}
+        <mesh position={[0, 0.15, 0]}>
+          <boxGeometry args={[0.62, 0.8, 0.34]} />
+          {red}
+        </mesh>
+        <mesh position={[0, -0.32, 0]}>
+          <boxGeometry args={[0.5, 0.25, 0.3]} />
+          {gold}
+        </mesh>
+        {/* arc reactor */}
+        <mesh position={[0, 0.28, 0.18]}>
+          <circleGeometry args={[0.1, 20]} />
+          {glow}
+        </mesh>
+        {/* head + gold faceplate + eye slits */}
+        <mesh position={[0, 0.8, 0]}>
+          <boxGeometry args={[0.34, 0.4, 0.34]} />
+          {red}
+        </mesh>
+        <mesh position={[0, 0.78, 0.175]}>
+          <planeGeometry args={[0.26, 0.32]} />
+          {gold}
+        </mesh>
+        {[-0.065, 0.065].map((x) => (
+          <mesh key={x} position={[x, 0.84, 0.18]}>
+            <planeGeometry args={[0.08, 0.025]} />
+            {glow}
+          </mesh>
+        ))}
+        {/* arms forward, fists leading (flight pose) */}
+        {[-1, 1].map((s) => (
+          <group key={s}>
+            <mesh position={[s * 0.42, 0.75, 0]}>
+              <boxGeometry args={[0.18, 0.95, 0.18]} />
+              {red}
+            </mesh>
+            <mesh position={[s * 0.42, 1.25, 0]}>
+              <boxGeometry args={[0.2, 0.18, 0.2]} />
+              {gold}
+            </mesh>
+          </group>
+        ))}
+        {/* legs, boots and thrusters */}
+        {[-1, 1].map((s) => (
+          <group key={s} position={[s * 0.15, 0, 0]}>
+            <mesh position={[0, -0.85, 0]}>
+              <boxGeometry args={[0.22, 0.9, 0.24]} />
+              {red}
+            </mesh>
+            <mesh position={[0, -1.36, 0]}>
+              <boxGeometry args={[0.24, 0.16, 0.26]} />
+              {gold}
+            </mesh>
+          </group>
+        ))}
+        <group ref={flame} position={[0, -1.45, 0]}>
+          {[-0.15, 0.15].map((x) => (
+            <mesh key={x} position={[x, -0.3, 0]} rotation={[Math.PI, 0, 0]}>
+              <coneGeometry args={[0.09, 0.6, 12]} />
+              <meshBasicMaterial color={IM_GLOW} transparent opacity={0.85} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} />
+            </mesh>
+          ))}
+        </group>
+      </group>
+    </>
+  )
+}
+
 function Orbit() {
   const geo = useMemo(() => {
     const pts: THREE.Vector3[] = []
@@ -249,6 +394,7 @@ function Globe({ onSelect }: { onSelect: (id: string) => void }) {
         </group>
         <Orbit />
         <Satellite />
+        <IronMan />
       </group>
     </group>
   )
@@ -291,6 +437,8 @@ export default function ThreatGlobe() {
       data-cursor="Drag to rotate"
     >
       <CameraRig />
+      <ambientLight intensity={0.6} />
+      <directionalLight position={[-5, 3, 6]} intensity={2.2} />
       <Stars />
       <Globe onSelect={select} />
       <OrbitControls enableZoom={false} enablePan={false} enableRotate={canHover} rotateSpeed={0.4} enableDamping dampingFactor={0.08} />

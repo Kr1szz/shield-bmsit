@@ -7,6 +7,7 @@ import type { Ability, Mission } from '../data/types'
 import { escalation, useShieldStore } from '../store/useShieldStore'
 import { Portrait, Scramble, ThreatMark, useReveal, reducedMotion, useRandomBattle } from '../components/ui'
 import { sfx } from '../lib/sfx'
+import { fury } from '../lib/fury'
 
 const SPECIAL_COOLDOWN = 3
 const VILLAIN_DELAY = 650
@@ -17,7 +18,11 @@ interface Fighter {
   max: number
   acted: boolean
   cooldown: number
+  /** Kind of this hero's previous action — attack → special next round triggers the combo */
+  last: Ability['kind'] | null
 }
+
+const comboReady = (f: Fighter) => f.last === 'attack' && f.cooldown === 0
 
 interface Battle {
   missionId: string
@@ -58,7 +63,7 @@ function newBattle(m: Mission, heroIds: string[], level: number): Battle {
     missionId: m.id,
     heroes: heroIds.map((id) => {
       const max = Math.round(70 + heroById(id).stats.durability * 0.6)
-      return { id, hp: max, max, acted: false, cooldown: 0 }
+      return { id, hp: max, max, acted: false, cooldown: 0, last: null }
     }),
     villainHp: hp,
     villainMax: hp,
@@ -239,6 +244,14 @@ const Fx = {
       onComplete: () => holder.remove(),
     })
   },
+  comboBanner(arena: HTMLElement, layer: HTMLElement, name: string) {
+    const el = spawn(layer, { left: '50%', top: '38%', transform: 'translate(-50%, -50%) rotate(-4deg)' }, 'z-30 whitespace-nowrap border-4 border-bone bg-marvel px-4 py-1 text-center text-bone')
+    el.innerHTML = `<span class="label block">Combo finisher</span><span class="display block text-[clamp(1.6rem,4vw,3rem)] leading-none">${name.replace(/[<>&]/g, '')}</span>`
+    gsap.timeline({ onComplete: () => el.remove() })
+      .fromTo(el, { scale: 2.4, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.22, ease: 'power3.out' })
+      .to(el, { opacity: 0, y: -30, duration: 0.3, ease: 'power2.in' }, '+=0.75')
+    gsap.fromTo(arena, { x: 10 }, { x: 0, duration: 0.4, ease: 'elastic.out(1, 0.4)' })
+  },
   glitch(arena: HTMLElement, layer: HTMLElement) {
     const h = arena.offsetHeight
     for (let i = 0; i < 10; i++) {
@@ -318,6 +331,8 @@ export default function BattleSim() {
   const grid = useRef<HTMLDivElement>(null)
   const bRef = useRef<Battle | null>(null)
   bRef.current = b
+  /** Director lines that should only play once per battle */
+  const said = useRef({ villainLow: false, teamLow: false })
 
   const engageable = MISSIONS.filter((m) => status[m.id] === 'In Progress' && assignments[m.id]?.length)
   const heroEl = (id: string) => arena.current?.querySelector(`[data-fighter="${id}"]`) ?? null
@@ -331,6 +346,8 @@ export default function BattleSim() {
       ;[villainById(m.villainId).image, ...nb.heroes.map((h) => heroById(h.id).image)].forEach((src) => { new Image().src = src })
       setB(nb)
       setIntro(true)
+      said.current = { villainLow: false, teamLow: false }
+      fury('battleStart', { villain: villainById(m.villainId).name, mission: m.codename })
       setBusy(false)
       setActiveHero(null)
       setAuto(false)
@@ -360,6 +377,7 @@ export default function BattleSim() {
       Fx.hitFrame(el, -10)
       Fx.floatText(A, L, el, `-${dmg}`, true)
     })
+    ev.kos.forEach((id) => fury('heroDown', { hero: heroById(id).name }))
     ev.kos.forEach((id) => {
       const el = heroEl(id)
       const h = heroById(id)
@@ -397,12 +415,42 @@ export default function BattleSim() {
       sfx('heal')
     } else {
       const special = ability.kind === 'special'
+      const combo = special && f.last === 'attack'
       const crit = Math.random() < hero.stats.combat / 600
-      const dmg = Math.round(ability.damage * (0.8 + hero.stats.power / 250) * rand(0.85, 1.15) * (crit ? 1.6 : 1))
+      const dmg = Math.round(ability.damage * (0.8 + hero.stats.power / 250) * rand(0.85, 1.15) * (crit ? 1.6 : 1) * (combo ? hero.combo.bonus : 1))
       state.villainHp = Math.max(0, state.villainHp - dmg)
+      if (combo) fury('combo', { hero: hero.name, combo: hero.combo.name })
+      if (state.villainHp > 0 && state.villainHp / state.villainMax < 0.25 && !said.current.villainLow) {
+        said.current.villainLow = true
+        setTimeout(() => fury('villainLow', { villain: villainById(missionById(state.missionId).villainId).name }), combo ? 4800 : 600)
+      }
       state.damage[heroId] = (state.damage[heroId] ?? 0) + dmg
-      state.log.unshift({ text: `${hero.name} → ${ability.name} for ${dmg}${crit ? ' (critical!)' : ''}.`, tone: 'hero' })
-      if (fx && el && villainEl.current) {
+      state.log.unshift(
+        combo
+          ? { text: `COMBO! ${hero.name}: ${hero.abilities[0].name} → ${ability.name} → ${hero.combo.name}. ${hero.combo.hits} hits for ${dmg}${crit ? ' (critical!)' : ''}.`, tone: 'hero' }
+          : { text: `${hero.name} → ${ability.name} for ${dmg}${crit ? ' (critical!)' : ''}.`, tone: 'hero' },
+      )
+      if (combo && fx && el && villainEl.current) {
+        // multi-hit finisher: one beam + impact per hit, damage split across them
+        const n = hero.combo.hits
+        const parts = Array.from({ length: n }, (_, i) => (i < n - 1 ? Math.floor(dmg / n) : dmg - Math.floor(dmg / n) * (n - 1)))
+        Fx.comboBanner(A!, L!, hero.combo.name)
+        sfx('combo')
+        parts.forEach((p, i) => {
+          setTimeout(() => {
+            if (!villainEl.current || !arena.current || !layer.current) return
+            const last = i === n - 1
+            Fx.beam(arena.current, layer.current, el, villainEl.current, last)
+            Fx.hitFrame(villainEl.current, last ? 30 : 12)
+            Fx.floatText(arena.current, layer.current, villainEl.current, `-${p}`, last)
+            if (last) {
+              Fx.invert(arena.current)
+              Fx.shockwave(arena.current, layer.current, villainEl.current)
+              sfx('heavy')
+            } else sfx('hit')
+          }, 260 + i * 150)
+        })
+      } else if (fx && el && villainEl.current) {
         Fx.beam(A!, L!, el, villainEl.current, special)
         setTimeout(() => {
           if (!villainEl.current || !arena.current || !layer.current) return
@@ -414,9 +462,9 @@ export default function BattleSim() {
           }
         }, 140)
       }
-      sfx(special || crit ? 'heavy' : 'hit')
+      if (!combo) sfx(special || crit ? 'heavy' : 'hit')
     }
-    state.heroes = state.heroes.map((h) => (h.id === heroId ? { ...h, acted: true, cooldown: ability.kind === 'special' ? SPECIAL_COOLDOWN : h.cooldown } : h))
+    state.heroes = state.heroes.map((h) => (h.id === heroId ? { ...h, acted: true, last: ability.kind, cooldown: ability.kind === 'special' ? SPECIAL_COOLDOWN : h.cooldown } : h))
 
     if (state.villainHp <= 0) {
       state.log.unshift({ text: `${villainById(missionById(state.missionId).villainId).name} defeated. Threat neutralised.`, tone: 'sys' })
@@ -440,6 +488,11 @@ export default function BattleSim() {
         bRef.current = next
         setB(next)
         requestAnimationFrame(() => playVillain(ev))
+        const alive = next.heroes.filter((h) => h.hp > 0)
+        if (!next.outcome && !said.current.teamLow && alive.length && alive.reduce((a, h) => a + h.hp / h.max, 0) / alive.length < 0.35) {
+          said.current.teamLow = true
+          fury('teamLow')
+        }
         setTimeout(() => setBusy(false), 450)
       }, VILLAIN_DELAY)
     }
@@ -454,7 +507,10 @@ export default function BattleSim() {
       if (!next) return
       const hero = heroById(next.id)
       const hurt = b.heroes.filter((h) => h.hp > 0).some((h) => h.hp / h.max < 0.4)
-      const pick = next.cooldown === 0 ? hero.abilities[1] : hurt && Math.random() < 0.6 ? hero.abilities[2] : hero.abilities[0]
+      // set up combos: hold the special until the hero has just attacked
+      const pick = comboReady(next) || (next.cooldown === 0 && next.last !== 'attack' && Math.random() < 0.25)
+        ? hero.abilities[1]
+        : hurt && Math.random() < 0.6 ? hero.abilities[2] : hero.abilities[0]
       act(next.id, pick)
     }, reducedMotion() ? 120 : 520)
     return () => clearTimeout(id)
@@ -515,6 +571,7 @@ export default function BattleSim() {
   const retreat = () => {
     if (!b) return
     resolve(b.missionId, false, b.round, b.damage)
+    fury('retreat', { mission: missionById(b.missionId).codename })
     setB(null)
     setBattleId(null)
   }
@@ -625,6 +682,7 @@ export default function BattleSim() {
                         <Portrait src={h.image} alt={h.name} className="h-full w-full" focus={h.focus} color={!down && !f.acted} hover={false} />
                         <span className="label absolute top-0 left-0 bg-ink px-1">{i + 1}</span>
                         {f.acted && !down && <span className="label absolute top-0 right-0 bg-bone px-1 text-ink">Acted</span>}
+                        {!f.acted && !down && comboReady(f) && <span className="label absolute top-0 right-0 bg-marvel px-1 text-bone">Combo</span>}
                         {down && <span className="display absolute inset-0 grid place-items-center bg-ink/70 text-2xl text-marvel">Down</span>}
                       </div>
                       <div className="p-2">
@@ -653,7 +711,12 @@ export default function BattleSim() {
                   </div>
                 ) : selected ? (
                   <div>
-                    <p className="label mb-3">{heroById(selected.id).name} — choose an ability</p>
+                    <p className="label mb-3">
+                      {heroById(selected.id).name} — choose an ability
+                      {comboReady(selected)
+                        ? <span className="ml-2 bg-marvel px-1 text-bone">Combo ready: W → {heroById(selected.id).combo.name}</span>
+                        : <span className="ml-2 text-bone/50">Combo: Q, then W next round</span>}
+                    </p>
                     <div className="grid gap-2 sm:grid-cols-3">
                       {heroById(selected.id).abilities.map((a, ai) => {
                         const Icon = a.kind === 'attack' ? Swords : a.kind === 'special' ? Zap : Shield

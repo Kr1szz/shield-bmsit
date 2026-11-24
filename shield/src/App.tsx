@@ -16,6 +16,9 @@ import TeamFormation from './sections/TeamFormation'
 import MissionControl from './sections/MissionControl'
 import BattleSim from './sections/BattleSim'
 import MissionStatus from './sections/MissionStatus'
+import DataVault from './sections/DataVault'
+import FuryComms from './components/FuryComms'
+import { fury } from './lib/fury'
 
 const ThreatGlobe = lazy(() => import('./components/ThreatGlobe'))
 
@@ -70,6 +73,19 @@ export default function App() {
   useThreatClock()
   useSmoothScroll(view === 'console' && !finished)
 
+  // the Director checks in when the console comes up (once per session)
+  useEffect(() => {
+    if (view !== 'console') return
+    try {
+      if (sessionStorage.getItem('shield-fury-hello')) return
+    } catch { /* storage blocked — just greet */ }
+    const id = setTimeout(() => {
+      try { sessionStorage.setItem('shield-fury-hello', '1') } catch { /* ignore */ }
+      fury('welcome')
+    }, 1800)
+    return () => clearTimeout(id)
+  }, [view])
+
   // dev-only hook for automated checks (finale preview, etc.)
   useEffect(() => {
     if (import.meta.env.DEV) (window as unknown as { __shield: unknown }).__shield = useShieldStore
@@ -93,9 +109,10 @@ export default function App() {
       ) : (
         <>
           <TopBar />
-          <main className="relative z-10">
+          {/* main lets pointer events fall through to the 3D globe; only real content catches them */}
+          <main className="pointer-events-none relative z-10">
             <Hero />
-            <div className="mx-auto max-w-[1440px] px-2 md:px-6">
+            <div className="pointer-events-auto mx-auto max-w-[1440px] px-2 md:px-6">
               <div className="border-2 border-ink bg-bone">
                 <Marquee />
                 <div className="grid md:grid-cols-[220px_1fr]">
@@ -107,12 +124,13 @@ export default function App() {
                     <MissionControl />
                     <BattleSim />
                     <MissionStatus />
+                    <DataVault />
                   </div>
                 </div>
               </div>
             </div>
 
-            <footer className="px-4 py-16 text-bone md:px-8">
+            <footer className="pointer-events-auto px-4 py-16 text-bone md:px-8">
               <div className="flex flex-col gap-8 md:flex-row md:items-end md:justify-between">
                 <div className="flex items-end gap-6">
                   <AvengersA className="h-24 w-20 text-marvel" />
@@ -122,6 +140,11 @@ export default function App() {
                   </p>
                 </div>
                 <div className="flex flex-col items-start gap-3 md:items-end">
+                  <div className="border-2 border-bone px-4 py-3 md:text-right">
+                    <p className="label text-marvel">Built by team</p>
+                    <p className="display text-[clamp(1.8rem,3.5vw,2.75rem)] leading-none">Breakpoints</p>
+                    <p className="label mt-2 text-bone/80">Devika Menon · Gopalkrishna J S</p>
+                  </div>
                   <MarvelLogo className="h-8" />
                   <p className="label max-w-xs text-bone/60 md:text-right">
                     Fan-made hackathon project. Marvel, the Avengers and all characters are trademarks of Marvel. Character art from the Marvel Database (Fandom).
@@ -134,6 +157,7 @@ export default function App() {
         </>
       )}
       <Toast />
+      {view === 'console' && <FuryComms />}
       <Reticle />
     </>
   )

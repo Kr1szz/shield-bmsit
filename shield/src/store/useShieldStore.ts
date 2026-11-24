@@ -1,9 +1,11 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { MISSIONS, missionById } from '../data/missions'
+import { MISSIONS, missionById, villainById } from '../data/missions'
 import { HEROES, heroById } from '../data/heroes'
 import type { Mission, MissionStatus, Threat } from '../data/types'
 import { sfx, setSfxEnabled } from '../lib/sfx'
+import { record } from '../lib/db'
+import { fury } from '../lib/fury'
 
 export const MIN_TEAM = 4
 export const MAX_TEAM = 6
@@ -111,6 +113,7 @@ export const useShieldStore = create<ShieldState>()(
           toast: { text, tone, key: Date.now() },
         }))
         sfx(tone === 'alert' ? 'alarm' : tone === 'warn' ? 'deny' : tone === 'ok' ? 'confirm' : 'blip')
+        record({ type: 'log', text, tone })
       }
 
       return {
@@ -156,6 +159,7 @@ export const useShieldStore = create<ShieldState>()(
           }
           if (team.length >= MAX_TEAM) {
             push(`Strike team is full — ${MAX_TEAM} heroes maximum.`, 'warn')
+            fury('teamFull')
             return
           }
           set({ team: [...team, heroId] })
@@ -222,7 +226,11 @@ export const useShieldStore = create<ShieldState>()(
             status: { ...s.status, [missionId]: 'In Progress' },
             team: [],
           })
+          record({ type: 'deploy', missionId, heroIds: s.team })
           push(`Team deployed to ${m.codename} — ${m.location}.`, 'ok')
+          sfx('deploy')
+          const names = s.team.map((h) => heroById(h).name)
+          fury('deploy', { team: names.length > 2 ? `${names.slice(0, 2).join(', ')} and the rest` : names.join(' and '), mission: m.codename, location: m.location })
           return true
         },
 
@@ -236,7 +244,9 @@ export const useShieldStore = create<ShieldState>()(
             status: { ...s.status, [missionId]: pending ? 'Pending' : 'Completed' },
             escalateAt: pending ? { ...s.escalateAt, [missionId]: Date.now() + ESCALATE_MS } : s.escalateAt,
           })
+          record({ type: 'recall', missionId })
           push(`Team recalled from ${missionById(missionId).codename}.`, 'info')
+          fury('recall', { mission: missionById(missionId).codename })
         },
 
         setStatus: (missionId, status) => {
@@ -252,6 +262,7 @@ export const useShieldStore = create<ShieldState>()(
             escalateAt: status === 'Pending' ? { ...s.escalateAt, [missionId]: Date.now() + ESCALATE_MS } : s.escalateAt,
             finishedAt: completedCount({ status: next }) === MISSIONS.length ? Date.now() : null,
           })
+          record({ type: 'status', missionId, status })
           push(`${m.codename} → ${status}.`, status === 'Completed' ? 'ok' : 'info')
         },
 
@@ -261,12 +272,20 @@ export const useShieldStore = create<ShieldState>()(
           const merged = { ...s.stats.damage }
           for (const [k, v] of Object.entries(damage)) merged[k] = (merged[k] ?? 0) + v
           const stats = { battles: s.stats.battles + 1, rounds: s.stats.rounds + rounds, losses: s.stats.losses + (won ? 0 : 1), damage: merged }
+          record({ type: 'battle', missionId, won, rounds, damage })
+          const villain = villainById(m.villainId).name
           if (won) {
             const next = { ...s.status, [missionId]: 'Completed' as MissionStatus }
             const done = completedCount({ status: next }) === MISSIONS.length
+            const unlocked = MISSIONS.some((x) => x.unlockAfter && isSealed(s, x) && !isSealed({ status: next }, x))
             set({ status: next, stats, finishedAt: done ? Date.now() : null })
             push(`Victory at ${m.location}. ${m.codename} completed.`, 'ok')
             sfx('win')
+            if (done) fury('allClear')
+            else {
+              fury('win', { villain, mission: m.codename })
+              if (unlocked) setTimeout(() => fury('doomUnlocked'), 5000)
+            }
           } else {
             const { [missionId]: _r, ...rest } = s.assignments
             void _r
@@ -277,6 +296,7 @@ export const useShieldStore = create<ShieldState>()(
               stats,
             })
             push(`Team forced to retreat from ${m.codename}. Mission reset to Pending.`, 'alert')
+            fury('loss', { villain, mission: m.codename })
           }
         },
 
@@ -297,7 +317,9 @@ export const useShieldStore = create<ShieldState>()(
               const nextT = THREAT_ORDER[idx + 1]
               threat = { ...threat, [m.id]: nextT }
               set({ threat, escalateAt })
+              record({ type: 'threat', missionId: m.id, threat: nextT })
               push(`${m.codename} escalated to ${nextT}. ${m.location} is getting worse.`, nextT === 'OMEGA' ? 'alert' : 'warn')
+              fury(nextT === 'OMEGA' ? 'omega' : 'escalate', { mission: m.codename, threat: nextT, location: m.location })
             } else {
               set({ escalateAt })
             }
@@ -340,7 +362,9 @@ export const useShieldStore = create<ShieldState>()(
             focusMission: null,
             battleId: null,
           })
+          record({ type: 'reset' })
           push('Command console reset.', 'info')
+          fury('reset')
         },
       }
     },

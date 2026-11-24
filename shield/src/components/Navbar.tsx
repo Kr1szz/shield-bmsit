@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Menu, X, RotateCcw, Volume2, VolumeX } from 'lucide-react'
+import { Menu, X, RotateCcw, Volume2, VolumeX, ArrowUp, Mic, MicOff } from 'lucide-react'
+import { useFury } from '../lib/fury'
 import { useShieldStore } from '../store/useShieldStore'
 
 export const SECTIONS = [
@@ -9,6 +10,7 @@ export const SECTIONS = [
   { id: 'missions', label: 'Missions', n: '04' },
   { id: 'battle', label: 'Battle', n: '05' },
   { id: 'status', label: 'Status', n: '06' },
+  { id: 'vault', label: 'Data vault', n: '07' },
 ]
 
 export function MarvelLogo({ className = 'h-6' }: { className?: string }) {
@@ -50,6 +52,8 @@ export function TopBar() {
   const teamSize = useShieldStore((s) => s.team.length)
   const sound = useShieldStore((s) => s.sound)
   const toggleSound = useShieldStore((s) => s.toggleSound)
+  const voice = useFury((s) => s.voice)
+  const toggleVoice = useFury((s) => s.toggleVoice)
   const setView = useShieldStore((s) => s.setView)
 
   useEffect(() => {
@@ -89,6 +93,17 @@ export function TopBar() {
         </a>
         <button onClick={toggleSound} aria-pressed={sound} aria-label={sound ? 'Mute sound' : 'Turn sound on'} data-cursor={sound ? 'Mute' : 'Sound on'} className={sound ? 'text-marvel' : 'text-bone/70 hover:text-bone'}>
           {sound ? <Volume2 size={16} /> : <VolumeX size={16} />}
+        </button>
+        <button
+          onClick={toggleVoice}
+          aria-pressed={voice}
+          aria-label={voice ? 'Turn off Director voice' : 'Turn on Director voice'}
+          title={voice ? 'Director voice: on (browser text-to-speech)' : 'Director voice: off — click to have Fury read his lines aloud'}
+          data-cursor={voice ? 'Voice off' : 'Voice on'}
+          className={`label flex items-center gap-1.5 border px-2 py-1 ${voice ? 'border-marvel bg-marvel text-bone' : 'border-bone/40 text-bone/70 hover:border-bone hover:text-bone'}`}
+        >
+          {voice ? <Mic size={13} /> : <MicOff size={13} />}
+          <span className="hidden sm:inline">Voice {voice ? 'on' : 'off'}</span>
         </button>
         <button onClick={reset} title="Reset console" aria-label="Reset console" data-cursor="Reset" className="hidden text-bone/70 hover:text-marvel md:block">
           <RotateCcw size={15} />
@@ -136,9 +151,18 @@ export function IndexNav() {
             )
           })}
         </ul>
-        <p className="label text-ink/60">
-          Drag the globe · click a red beacon to open its mission.
-        </p>
+        <button
+          onClick={() => {
+            const lenis = (window as unknown as { __lenis?: { scrollTo: (t: number, o?: object) => void } }).__lenis
+            if (lenis) lenis.scrollTo(0, { duration: 1.2 })
+            else window.scrollTo({ top: 0, behavior: 'smooth' })
+          }}
+          className="label group flex items-start gap-2 text-left text-ink/60 hover:text-ink"
+          data-cursor="Globe"
+        >
+          <ArrowUp size={13} className="mt-0.5 shrink-0 text-marvel transition-transform group-hover:-translate-y-0.5" />
+          <span>Threat globe — drag to rotate, click a red beacon to open its mission.</span>
+        </button>
       </div>
     </aside>
   )
